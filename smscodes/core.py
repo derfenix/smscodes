@@ -1,23 +1,26 @@
 import string
 from random import randint
 
-from peewee import SqliteDatabase, Model, FixedCharField, BooleanField
+from peewee import Model, FixedCharField, BooleanField
 
-PREGENERATE_CODES_COUNT = 10000
+from smscodes.db import db
+
+PRE_GENERATE_CODES_COUNT = 10000
 
 chars = string.ascii_letters + string.digits
 chars_count = len(chars)
 
-EXISTS = 1
-NOT_EXISTS = 2
+NOT_EXISTS = -1
+SENT = 1
+NOT_SENT = 2
 USED = 3
 
 CODE_STATES = {
-    EXISTS: "exists",
     NOT_EXISTS: "not exists",
+    SENT: "sent",
+    NOT_SENT: "not sent",
     USED: "used"
 }
-db = SqliteDatabase('db.sqlite3')
 
 
 class NoCodesLeft(Exception):
@@ -46,7 +49,7 @@ def pre_generate_codes():
     """Return set of unique pre-generated codes"""
     g = _code_generator()
     codes = set()
-    while len(codes) < PREGENERATE_CODES_COUNT:
+    while len(codes) < PRE_GENERATE_CODES_COUNT:
         codes.add(next(g))
     g.close()
     return codes
@@ -78,7 +81,9 @@ def check_code(code: str) -> int:
     if not query.exists():
         return NOT_EXISTS
     code_rec = query.get()
-    return USED if code_rec.used else EXISTS
+    if not code_rec.sent:
+        return NOT_SENT
+    return USED if code_rec.used else SENT
 
 
 def count_left() -> int:
@@ -91,7 +96,7 @@ def count_unused() -> int:
     return Codes.select(Codes.code).where(Codes.used == False).count()
 
 
-def use_code(code: str) -> bool:
+def use_code(code: str) -> int:
     """
     Mark code as used
 
@@ -100,15 +105,15 @@ def use_code(code: str) -> bool:
     """
     query = Codes.select().where(Codes.code == code)
     if not query.exists():
-        return False
+        return NOT_EXISTS
 
     code_req = query.get()
     if not code_req.sent:
-        return False
+        return NOT_SENT
 
     if code_req.used:
-        return False
+        return USED
 
     code_req.used = True
     code_req.save()
-    return True
+    return 0

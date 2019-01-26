@@ -3,8 +3,9 @@ import logging
 from flask import Flask
 from peewee import OperationalError
 
-from smscodes.core import new_code, db, Codes, NoCodesLeft, check_code, NOT_EXISTS, use_code, CODE_STATES, count_left, \
-    count_unused, pre_generate_codes
+from smscodes.core import new_code, Codes, NoCodesLeft, check_code, NOT_SENT, use_code, CODE_STATES, count_left, \
+    count_unused, pre_generate_codes, NOT_EXISTS, USED
+from smscodes.db import db
 
 logger = logging.getLogger('smscodes')
 
@@ -36,12 +37,14 @@ def get_new_code():
 
 @app.route('/use/<code>/')
 def do_use(code: str):
-    if len(code) < 4 or check_code(code) == NOT_EXISTS:
-        logger.error("Code %s is invalid. Length check: %s, exists check: %s",
-                     code, len(code) < 4, check_code(code) == NOT_EXISTS)
-        return "Invalid code", 400
+    state = check_code(code)
+    if state in (NOT_EXISTS, NOT_SENT):
+        return CODE_STATES[state], 404
 
-    if use_code(code):
+    if state == USED:
+        return "Already used", 400
+
+    if use_code(code) == 0:
         return "OK"
     else:
         return "Failed", 400
@@ -49,7 +52,10 @@ def do_use(code: str):
 
 @app.route('/check/<code>/')
 def do_check(code: str):
-    return CODE_STATES[check_code(code)]
+    state = check_code(code)
+    if state == NOT_EXISTS:
+        return '', 404
+    return CODE_STATES[state]
 
 
 @app.route('/left/total/')
